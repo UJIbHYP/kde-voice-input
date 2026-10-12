@@ -17,3 +17,10 @@ icon/drafts/
 # внутренняя передача контекста — не публиковать
 HANDOFF.md
 vendor/
+
+# Python bytecode
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/

@@ -176,6 +176,7 @@ def find_model_dir(extra: str = "") -> str:
         os.path.join(os.path.dirname(os.path.abspath(__file__)), "model"),
         "/opt/gigaam/onnx_int8",
         os.path.expanduser("~/projects/gigaam-cli/onnx_int8"),
+        os.path.expanduser("~/.giga/model"),
     ]
     for path in candidates:
         if path and os.path.exists(os.path.join(path, f"{MODEL_NAME}.yaml")):
@@ -201,7 +202,7 @@ class Engine:
 
         opts = rt.SessionOptions()
         opts.graph_optimization_level = rt.GraphOptimizationLevel.ORT_ENABLE_ALL
-        opts.intra_op_num_threads = threads or min(8, os.cpu_count() or 4)
+        opts.intra_op_num_threads = threads or (os.cpu_count() or 4)
         opts.execution_mode = rt.ExecutionMode.ORT_SEQUENTIAL
         opts.log_severity_level = 3
 
@@ -241,7 +242,10 @@ class Engine:
     def _decode_rnnt(self, enc_features: np.ndarray, enc_len: int) -> list:
         """Жадное декодирование RNN-T для одной записи."""
         dtype = np.float32
-        enc_features = np.asarray(enc_features, dtype=dtype, order="C")
+        if enc_features.dtype != dtype or not enc_features.flags.c_contiguous:
+            enc_features = np.ascontiguousarray(enc_features, dtype=dtype)
+        else:
+            enc_features = np.asarray(enc_features, dtype=dtype)
 
         pred_names = [n.name for n in self.pred.get_outputs()]
         joint_names = [n.name for n in self.joint.get_outputs()]
@@ -249,7 +253,8 @@ class Engine:
         joint_in = [n.name for n in self.joint.get_inputs()]
 
         hyp = []
-        label = np.array([[self.blank_id]], dtype=np.int64)
+        blank_label = np.array([[self.blank_id]], dtype=np.int64)
+        label = blank_label.copy()
         h = np.zeros((self.pred_layers, 1, self.pred_hidden), dtype=dtype)
         c = np.zeros((self.pred_layers, 1, self.pred_hidden), dtype=dtype)
         started = False   # до первой буквы состояние декодера — нулевое
@@ -261,7 +266,7 @@ class Engine:
                 if started:
                     args = [label, h, c]
                 else:
-                    args = [np.array([[self.blank_id]], dtype=np.int64),
+                    args = [blank_label,
                             np.zeros_like(h), np.zeros_like(c)]
 
                 g, h_new, c_new = self.pred.run(pred_names, dict(zip(pred_in, args)))
